@@ -1,57 +1,80 @@
-import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-from zoneinfo import ZoneInfo
+import os
 
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-
-URL = "https://brawlace.com/coc/leaderboards/players?locationId=32000097"
+# ========= CONFIG =========
+URL = "https://coc-stats.net/en/locations/32000097/players/"
+DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-response = requests.get(URL, headers=HEADERS, timeout=20)
+MAX_PLAYERS = 100
+# ==========================
+
+# Fetch page
+response = requests.get(URL, headers=HEADERS, timeout=30)
 response.raise_for_status()
 
 soup = BeautifulSoup(response.text, "html.parser")
 
-table = soup.find("table")
-if not table:
-    raise RuntimeError("Leaderboard table not found")
+rows = soup.select("table tr")
 
-rows = table.select("tbody tr")
+players = []
+seen_tags = set()
 
-lines = []
-for row in rows[:100]:  # top 100 players
+for row in rows:
     cols = row.find_all("td")
-    if len(cols) < 4:
+    if len(cols) < 3:
         continue
 
-    rank = cols[0].get_text(strip=True)
-    name = cols[1].get_text(strip=True)
-    trophies = cols[3].get_text(strip=True)
+    # ---- Player tag (for deduplication) ----
+    raw_text = cols[1].get_text(" ", strip=True)
+    if "#" not in raw_text:
+        continue
 
-    lines.append(f"{rank}. {name} | {trophies} 🏆")
+    tag = raw_text.split("#")[-1].strip()
+    if tag in seen_tags:
+        continue
+    seen_tags.add(tag)
 
-description = "\n".join(lines)
+    # ---- Rank ----
+    rank_tag = cols[0].find("h3")
+    if not rank_tag:
+        continue
+    rank = rank_tag.text.split(".")[0].strip()
 
-# Greece local date
-greece_time = datetime.now(ZoneInfo("Europe/Athens"))
-date_str = greece_time.strftime("%B %d")
+    # ---- Name ----
+    name_tag = cols[1].find("a")
+    if not name_tag:
+        continue
+    name = name_tag.text.strip()
+
+    # ---- Trophies ----
+    trophies_text = cols[2].get_text(strip=True)
+    trophies = "".join(c for c in trophies_text if c.isdigit())
+
+    players.append(f"{rank}. {name} | {trophies}")
+
+    if len(players) >= MAX_PLAYERS:
+        break
+
+# ---- Build embed ----
+today = datetime.now().strftime("%B %d")
 
 embed = {
-    "title": f"Greece Legends Leaderboard for {date_str}",
-    "description": description[:4096],  # Discord embed limit
-    "color": 0x1ABC9C
+    "title": f"Greece Legends Leaderboard for {today}",
+    "description": "\n".join(players),
+    "color": 0xF1C40F
 }
 
 payload = {
     "embeds": [embed]
 }
 
-r = requests.post(DISCORD_WEBHOOK, json=payload)
-r.raise_for_status()
-
-print("Greek Legends leaderboard posted successfully")
+# Send to Discord
+discord_response = requests.post(DISCORD_WEBHOOK, json=payload)
+print("Discord status:", discord_response.status_code)
+print(discord_response.text)
