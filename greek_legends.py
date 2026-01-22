@@ -1,108 +1,57 @@
-import requests
-import json
 import os
-from datetime import datetime, timezone
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-# ===== CONFIG =====
-CLASH_API_TOKEN = os.environ.get("CLASH_API_TOKEN")
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-if not CLASH_API_TOKEN or not DISCORD_WEBHOOK_URL:
-    raise RuntimeError("Missing environment variables")
+URL = "https://brawlace.com/coc/leaderboards/players?locationId=32000097"
 
-LOCATION_ID = "32000097"  # Greece
-LEGEND_TROPHIES = 4700
-MAX_PLAYERS = 100
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "previous_ranks.json")
-dt = datetime.now(timezone.utc)
-today = f"{dt.strftime('%B')} {dt.day}, {dt.year}"
-# ==================
-
-headers = {
-    "Authorization": f"Bearer {CLASH_API_TOKEN}"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
 }
 
-# --- Load yesterday's data ---
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        previous_data = json.load(f)
-else:
-    previous_data = {}
-
-# --- Fetch Greek players ---
-url = f"https://api.clashofclans.com/v1/locations/{LOCATION_ID}/rankings/players"
-response = requests.get(url, headers=headers)
+response = requests.get(URL, headers=HEADERS, timeout=20)
 response.raise_for_status()
 
-items = response.json().get("items", [])
+soup = BeautifulSoup(response.text, "html.parser")
 
-# --- Filter Legend League players ---
-legend_players = [p for p in items if p.get("trophies", 0) >= LEGEND_TROPHIES]
-players = legend_players[:MAX_PLAYERS]
+table = soup.find("table")
+if not table:
+    raise RuntimeError("Leaderboard table not found")
+
+rows = table.select("tbody tr")
 
 lines = []
-current_data = {}
+for row in rows[:100]:  # top 100 players
+    cols = row.find_all("td")
+    if len(cols) < 4:
+        continue
 
-MAX_NAME_LEN = 20
+    rank = cols[0].get_text(strip=True)
+    name = cols[1].get_text(strip=True)
+    trophies = cols[3].get_text(strip=True)
 
-for index, p in enumerate(players, start=1):
-    tag = p["tag"]
-    name = p["name"]
-    trophies = p["trophies"]
-    clan = p["clan"]["name"] if "clan" in p else "No Clan"
-    if len(name) > MAX_NAME_LEN:
-        name = name[:MAX_NAME_LEN]
+    lines.append(f"{rank}. {name} | {trophies} 🏆")
 
-    current_data[tag] = index
+description = "\n".join(lines)
 
-    # --- Rank change logic ---
-    if tag not in previous_data:
-        change = "🆕"
-    else:
-        diff = previous_data[tag] - index
-        if diff > 0:
-            change = f"↑{diff}"
-        elif diff < 0:
-            change = f"↓{abs(diff)}"
-        else:
-            change = "→"
-
-    rank = str(index).rjust(3)  # pads to width 3
-
-    lines.append(
-        f"{rank}- {name} | {trophies}"
-    )
-
-# --- Save today's data for tomorrow ---
-with open(DATA_FILE, "w", encoding="utf-8") as f:
-    json.dump(current_data, f, ensure_ascii=False, indent=2)
-
-# Embdeds
-fields = []
-
-# Safe chunk size for short lines
-CHUNK_SIZE = 20
-
-for i in range(0, len(lines), CHUNK_SIZE):
-    fields.append({
-        "name": "\u200b",  # invisible title
-        "value": "\n".join(lines[i:i + CHUNK_SIZE]),
-        "inline": False
-    })
+# Greece local date
+greece_time = datetime.now(ZoneInfo("Europe/Athens"))
+date_str = greece_time.strftime("%B %d")
 
 embed = {
-    "title": f"🏆 Greece Legends Leaderboard for {today} 🇬🇷",
-    "color": 0x1ABC9C,
-    "fields": fields,
-    "timestamp": datetime.now(timezone.utc).isoformat()
+    "title": f"Greece Legends Leaderboard for {date_str}",
+    "description": description[:4096],  # Discord embed limit
+    "color": 0x1ABC9C
 }
 
-payload = {"embeds": [embed]}
-response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+payload = {
+    "embeds": [embed]
+}
 
-print("Discord status:", response.status_code)
-print("Discord response:", response.text)
+r = requests.post(DISCORD_WEBHOOK, json=payload)
+r.raise_for_status()
 
-print("Total players processed:", len(players))
-
+print("Greek Legends leaderboard posted successfully")
