@@ -1,28 +1,41 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
+import json
 
 # ========= CONFIG =========
 URL = "https://coc-stats.net/en/locations/32000097/players/"
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+DATA_FILE = "previous_day.json"
+MAX_PLAYERS = 100
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
-
-MAX_PLAYERS = 100
 # ==========================
 
-# Fetch page
+# ---- Time (Greece) ----
+greece_tz = timezone(timedelta(hours=3))
+now_gr = datetime.now(greece_tz)
+date_title = now_gr.strftime("%B %d")
+time_footer = now_gr.strftime("%H:%M")
+
+# ---- Load yesterday data ----
+previous = {}
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        previous = json.load(f)
+
+# ---- Fetch page ----
 response = requests.get(URL, headers=HEADERS, timeout=30)
 response.raise_for_status()
-
 soup = BeautifulSoup(response.text, "html.parser")
 
 rows = soup.select("table tr")
 
 players = []
+today_data = {}
 seen_tags = set()
 
 for row in rows:
@@ -30,7 +43,6 @@ for row in rows:
     if len(cols) < 3:
         continue
 
-    # ---- Player tag (for deduplication) ----
     raw_text = cols[1].get_text(" ", strip=True)
     if "#" not in raw_text:
         continue
@@ -40,41 +52,51 @@ for row in rows:
         continue
     seen_tags.add(tag)
 
-    # ---- Rank ----
     rank_tag = cols[0].find("h3")
-    if not rank_tag:
-        continue
-    rank = rank_tag.text.split(".")[0].strip()
-
-    # ---- Name ----
     name_tag = cols[1].find("a")
-    if not name_tag:
+    if not rank_tag or not name_tag:
         continue
+
+    rank = rank_tag.text.split(".")[0].strip()
     name = name_tag.text.strip()
 
-    # ---- Trophies ----
     trophies_text = cols[2].get_text(strip=True)
-    trophies = "".join(c for c in trophies_text if c.isdigit())
+    trophies = int("".join(c for c in trophies_text if c.isdigit()))
 
-    players.append(f"{rank}. {name} | {trophies}")
+    # ---- Compare with yesterday ----
+    change = ""
+    if tag in previous:
+        diff = trophies - previous[tag]
+        if diff > 0:
+            change = f" ▲{diff}"
+        elif diff < 0:
+            change = f" ▼{abs(diff)}"
+        else:
+            change = " ▬"
+
+    players.append(f"{rank}. {name} | {trophies}{change}")
+    today_data[tag] = trophies
 
     if len(players) >= MAX_PLAYERS:
         break
 
+# ---- Save today for tomorrow ----
+with open(DATA_FILE, "w", encoding="utf-8") as f:
+    json.dump(today_data, f, ensure_ascii=False, indent=2)
+
 # ---- Build embed ----
-today = datetime.now().strftime("%B %d")
-
 embed = {
-    "title": f"Greece Legends Leaderboard for {today}",
+    "title": f"Greece Legends Leaderboard for {date_title}",
     "description": "\n".join(players),
-    "color": 0xF1C40F
+    "color": 0xF1C40F,
+    "footer": {
+        "text": f"Posted at {time_footer} (Greece time)"
+    }
 }
 
-payload = {
-    "embeds": [embed]
-}
+payload = {"embeds": [embed]}
 
-# Send to Discord
-discord_response = requests.post(DISCORD_WEBHOOK, json=payload)
-print("Discord status:", discord_response.status_code)
-print(discord_response.text)
+# ---- Send to Discord ----
+resp = requests.post(DISCORD_WEBHOOK, json=payload)
+print("Discord status:", resp.status_code)
+print(resp.text)
