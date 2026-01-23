@@ -5,6 +5,8 @@ import os
 import json
 
 print("Workflow started at UTC:", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+# ---- Daily run lock ----
+LOCK_FILE = "last_run_date.txt"
 
 # ========= CONFIG =========
 URL = "https://coc-stats.net/en/locations/32000097/players/"
@@ -22,6 +24,23 @@ greece_tz = timezone(timedelta(hours=3))
 now_gr = datetime.now(greece_tz)
 date_title = now_gr.strftime("%B %d")
 time_footer = now_gr.strftime("%H:%M")
+
+today_str = now_gr.strftime("%Y-%m-%d")
+current_time_str = now_gr.strftime("%H:%M")
+
+# ---- Time guard: ONLY run at 06:59 Greece time ----
+if current_time_str != "06:59":
+    print(f"Not 06:59 Greece time (now: {current_time_str}). Exiting.")
+    exit(0)
+
+# ---- Once-per-day guard ----
+if os.path.exists(LOCK_FILE):
+    with open(LOCK_FILE, "r") as f:
+        last_run = f.read().strip()
+        if last_run == today_str:
+            print("Already posted today. Exiting.")
+            exit(0)
+
 
 # ---- Load yesterday data ----
 previous = {}
@@ -77,7 +96,7 @@ for row in rows:
             change = " ⚪ ▬"
 
 
-    players.append(f"{rank}. {name} | {trophies}{change}")
+    players.append(f"{rank}. {name} | {trophies}🏆 | {change}🏆")
     today_data[tag] = trophies
 
     if len(players) >= MAX_PLAYERS:
@@ -103,5 +122,11 @@ payload = {"embeds": [embed]}
 resp = requests.post(DISCORD_WEBHOOK, json=payload)
 print("Discord status:", resp.status_code)
 print(resp.text)
+
+# ---- Save successful run date ----
+if resp.status_code == 204 or resp.status_code == 200:
+    with open(LOCK_FILE, "w") as f:
+        f.write(today_str)
+
 
 
