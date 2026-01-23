@@ -4,6 +4,8 @@ from datetime import datetime, timezone, timedelta
 import os
 import json
 
+print("Workflow started at UTC:", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+
 # ========= CONFIG =========
 URL = "https://coc-stats.net/en/locations/32000097/players/"
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
@@ -101,4 +103,5 @@ payload = {"embeds": [embed]}
 resp = requests.post(DISCORD_WEBHOOK, json=payload)
 print("Discord status:", resp.status_code)
 print(resp.text)
+
 
