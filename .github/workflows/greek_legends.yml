@@ -2,8 +2,9 @@ name: Greece Legends Leaderboard
 
 on:
   schedule:
-    - cron: "59 3,4 * * *"   # 06:59 Greece time (UTC+3)
+    - cron: "*/5 * * * *"
   workflow_dispatch:
+
 
 jobs:
   run-bot:
