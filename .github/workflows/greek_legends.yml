@@ -2,20 +2,18 @@ name: Greece Legends Leaderboard
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "59 3 * * *"   # 06:59 Greece time (UTC+3)
   workflow_dispatch:
-
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
-      - name: Wake-up log
-        run: echo "Workflow heartbeat $(date -u)"
-        
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,9 +21,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install requests beautifulsoup4
 
-      - name: Run leaderboard bot
+      - name: Run bot
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python greek_legends.py
@@ -34,7 +33,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add previous_day.json last_run_date.txt || true
-          git commit -m "Update previous day leaderboard" || echo "No changes"
+          git add previous_day.json
+          git commit -m "Update leaderboard data" || echo "No changes"
           git push
-
