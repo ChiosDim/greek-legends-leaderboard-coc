@@ -6,15 +6,14 @@ import os
 import json
 
 print("=== SCRIPT START ===")
-HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL")
 
 # ========= CONFIG =========
 URL = "https://coc-stats.net/en/locations/32000097/players/"
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL")
 
 DATA_FILE = "previous_day.json"
-LOCK_FILE = "last_run_date.txt"
-
+DAILY_LOCK = "posted_today.txt"
 MAX_PLAYERS = 100
 
 HEADERS = {
@@ -36,15 +35,15 @@ time_footer = current_time_str
 print("Greece time:", now_gr.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-# ---- TIME GUARD (runs every 5 min, posts only in window) ----
+# ---- TIME WINDOW GUARD ----
 if not ("06:40" <= current_time_str <= "07:05"):
     print("Outside posting window. Exiting.")
     exit(0)
 
 
-# ---- ONCE PER DAY GUARD ----
-if os.path.exists(LOCK_FILE):
-    with open(LOCK_FILE, "r") as f:
+# ---- DAILY LOCK GUARD ----
+if os.path.exists(DAILY_LOCK):
+    with open(DAILY_LOCK) as f:
         if f.read().strip() == today_str:
             print("Already posted today. Exiting.")
             exit(0)
@@ -67,7 +66,6 @@ rows = soup.select("table tr")
 players = []
 today_data = {}
 seen_tags = set()
-
 
 for row in rows:
     cols = row.find_all("td")
@@ -106,11 +104,6 @@ for row in rows:
         break
 
 
-# ---- Save today data ----
-with open(DATA_FILE, "w", encoding="utf-8") as f:
-    json.dump(today_data, f, ensure_ascii=False, indent=2)
-
-
 # ---- Discord embed ----
 embed = {
     "title": f"Greece Legends Leaderboard for {date_title}",
@@ -129,7 +122,22 @@ resp = requests.post(DISCORD_WEBHOOK, json=payload)
 print("Discord status:", resp.status_code)
 print(resp.text)
 
-# ---- Healthcheck ping ----
+
+# ---- SAVE STATE ONLY ON SUCCESS ----
+if resp.status_code in (200, 204):
+    print("Discord post successful. Saving daily state.")
+
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(today_data, f, ensure_ascii=False, indent=2)
+
+    with open(DAILY_LOCK, "w") as f:
+        f.write(today_str)
+
+else:
+    print("Discord failed. NOT saving state.")
+
+
+# ---- Healthcheck ----
 if HEALTHCHECK_URL:
     try:
         requests.get(HEALTHCHECK_URL, timeout=10)
@@ -137,12 +145,4 @@ if HEALTHCHECK_URL:
     except Exception as e:
         print("Healthcheck failed:", e)
 
-# ---- SAVE LOCK ONLY IF SUCCESS ----
-if resp.status_code in (200, 204):
-    with open(LOCK_FILE, "w") as f:
-        f.write(today_str)
-    print("Lock file written. Done.")
-else:
-    print("Discord failed. Lock NOT written.")
-
-
+print("=== SCRIPT END ===")
