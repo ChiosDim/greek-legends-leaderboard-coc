@@ -99,7 +99,7 @@ for row in rows:
         else:
             change = " ⚪ ▬"
 
-    players.append(f"{rank}. {name} | {trophies}{change}")
+    players.append(f"{rank}. {name} | {trophies}🏆{change}")
     today_data[tag] = trophies
 
     if len(players) >= MAX_PLAYERS:
@@ -144,4 +144,5 @@ if resp.status_code in (200, 204):
     print("Lock file written. Done.")
 else:
     print("Discord failed. Lock NOT written.")
+
 
