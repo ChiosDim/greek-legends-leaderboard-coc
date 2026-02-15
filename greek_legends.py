@@ -4,6 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 import json
+import time
 
 print("=== SCRIPT START ===")
 
@@ -56,9 +57,22 @@ if os.path.exists(DATA_FILE):
         previous = json.load(f)
 
 
-# ---- Fetch page ----
-response = requests.get(URL, headers=HEADERS, timeout=30)
-response.raise_for_status()
+# ---- Fetch page with retries ----
+max_attempts = 3
+response = None
+
+for attempt in range(1, max_attempts + 1):
+    try:
+        print(f"Fetch attempt {attempt}...")
+        response = requests.get(URL, headers=HEADERS, timeout=30)
+        response.raise_for_status()
+        break
+    except requests.exceptions.RequestException as e:
+        print(f"Attempt {attempt} failed:", e)
+        if attempt == max_attempts:
+            print("All fetch attempts failed. Exiting safely.")
+            exit(0)
+        time.sleep(5)
 
 soup = BeautifulSoup(response.text, "html.parser")
 rows = soup.select("table tr")
@@ -146,4 +160,5 @@ if HEALTHCHECK_URL:
         print("Healthcheck failed:", e)
 
 print("=== SCRIPT END ===")
+
 
